@@ -39,19 +39,20 @@ exit /b 0
 for /l %%i in (1,1,1000000) do (
   echo.
   echo  ================ winlock helper ================
-  echo    1) start guard        4) live monitor
-  echo    2) stop guard         5) install + autostart
-  echo    3) status             6) uninstall
-  echo    0) exit
+  echo    1. start guard        4. live monitor
+  echo    2. stop guard         5. install + autostart
+  echo    3. status             6. uninstall
+  echo    0. exit
   echo  ================================================
   choice /c 1234560 /n /m " Select: "
   if errorlevel 7 goto :eof
-  if errorlevel 6 call :o_uninstall
-  if errorlevel 5 call :o_install
-  if errorlevel 4 call :o_monitor
-  if errorlevel 3 call :o_status
-  if errorlevel 2 call :o_stop
-  if errorlevel 1 call :o_start
+  set "EL=!errorlevel!"
+  if "!EL!"=="6" call :o_uninstall
+  if "!EL!"=="5" call :o_install
+  if "!EL!"=="4" call :o_monitor
+  if "!EL!"=="3" call :o_status
+  if "!EL!"=="2" call :o_stop
+  if "!EL!"=="1" call :o_start
 )
 goto :eof
 
