@@ -39,18 +39,19 @@ exit /b 0
 for /l %%i in (1,1,1000000) do (
   echo.
   echo  ================ winlock helper ================
-  echo    1. start guard        4. live monitor
-  echo    2. stop guard         5. install + autostart
-  echo    3. status             6. uninstall
-  echo    0. exit
+  echo    1. start guard        5. install + autostart
+  echo    2. stop guard         6. uninstall
+  echo    3. restart guard      7. status
+  echo    4. live monitor       0. exit
   echo  ================================================
-  choice /c 1234560 /n /m " Select: "
-  if errorlevel 7 goto :eof
+  choice /c 12345670 /n /m " Select: "
+  if errorlevel 8 goto :eof
   set "EL=!errorlevel!"
+  if "!EL!"=="7" call :o_status
   if "!EL!"=="6" call :o_uninstall
   if "!EL!"=="5" call :o_install
   if "!EL!"=="4" call :o_monitor
-  if "!EL!"=="3" call :o_status
+  if "!EL!"=="3" call :o_restart
   if "!EL!"=="2" call :o_stop
   if "!EL!"=="1" call :o_start
 )
@@ -76,10 +77,24 @@ goto :eof
 call :is_running
 if not "%RC%"=="0" goto o_stop2
 powershell -NoProfile -Command "Stop-Process -Name '%NAME%' -Force" >nul 2>&1
+ping -n 2 127.0.0.1 >nul
+call :is_running
+if "%RC%"=="0" goto o_stop3
 echo Guard stopped.
 goto :eof
 :o_stop2
 echo Guard is not running.
+goto :eof
+:o_stop3
+echo Stopping denied: guard runs elevated. Requesting elevated stop...
+powershell -NoProfile -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-Command','Stop-Process -Name ''%NAME%'' -Force'" >nul 2>&1
+ping -n 2 127.0.0.1 >nul
+call :is_running
+if "%RC%"=="0" goto o_stop4
+echo Still running. Kill from an admin cmd: taskkill /F /IM %NAME%.exe
+goto :eof
+:o_stop4
+echo Guard stopped (elevated kill).
 goto :eof
 
 :o_restart
@@ -121,10 +136,10 @@ echo  Guard started from the install folder.
 goto :eof
 
 :o_uninstall
-powershell -NoProfile -Command "Stop-Process -Name '%NAME%' -Force -ErrorAction SilentlyContinue" >nul 2>&1
+call :o_stop
 set "AUTO=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\winlock-autostart.bat"
 if exist "%AUTO%" del "%AUTO%"
-echo Guard stopped, autostart removed.
+echo Autostart removed.
 goto :eof
 
 :o_monitor

@@ -121,7 +121,19 @@ start() {
 stop() {
   if is_running; then
     powershell.exe -NoProfile -Command "Stop-Process -Name '$NAME' -Force" >/dev/null 2>&1
-    echo "守护已停止"
+    sleep 1
+    if is_running; then
+      echo "停止被拒绝(守护以管理员身份运行), 正请求提权停止..."
+      powershell.exe -NoProfile -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-Command','Stop-Process -Name ''$NAME'' -Force'" >/dev/null 2>&1
+      sleep 1
+      if is_running; then
+        echo "仍无法停止! 请在管理员 cmd 执行: taskkill /F /IM $NAME.exe"
+        return 1
+      fi
+      echo "守护已停止(提权)"
+    else
+      echo "守护已停止"
+    fi
   else
     echo "守护未在运行"
   fi
