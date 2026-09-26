@@ -26,6 +26,7 @@ typedef struct {
     int     n_games;       /* 已配置游戏数量                                          */
     wchar_t title[192];    /* 可选: 窗口标题子串(对全部游戏生效), 留空则只按进程名判断 */
     int     poll_ms;       /* 前台窗口检测间隔(毫秒)                                 */
+    int     elevate;       /* run_as_admin: 1=以管理员权限运行(游戏管理员运行时需要)   */
 } Config;
 
 static Config   cfg;
@@ -122,6 +123,8 @@ static void parse_config(const char *path) {
             utf8_to_w(buf, cfg.title, 191);
         } else if (keyis(key, klen, "poll_ms")) {
             cfg.poll_ms = atoi(buf);
+        } else if (keyis(key, klen, "run_as_admin")) {
+            cfg.elevate = (buf[0] == '1' || buf[0] == 'y' || buf[0] == 'Y');
         }
     }
     fclose(f);
@@ -149,6 +152,7 @@ static int wicontains(const wchar_t *h, const wchar_t *n) {
 
 /* ------------------------------------------------------------ 状态文件 */
 
+static int        g_elevated = 0;   /* 本进程是否以管理员身份运行 */
 static wchar_t g_last_title[256];
 static char    g_last_payload[1152];
 static int     g_has_payload = 0;
@@ -159,8 +163,8 @@ static void write_status(const wchar_t *title, int focused, const wchar_t *exe_b
     w_to_utf8(title, tbuf, sizeof tbuf);
     w_to_utf8(exe_base, ebuf, sizeof ebuf);
     snprintf(buf, sizeof buf,
-             "pid=%lu\nfocused=%d\nblocking=%d\nexe=%s\ntitle=%s\n",
-             (unsigned long)GetCurrentProcessId(), focused, focused, ebuf, tbuf);
+             "pid=%lu\nfocused=%d\nblocking=%d\nelevated=%d\nexe=%s\ntitle=%s\n",
+             (unsigned long)GetCurrentProcessId(), focused, focused, g_elevated, ebuf, tbuf);
     if (g_has_payload && strcmp(buf, g_last_payload) == 0) return;
 
     strcpy(g_last_payload, buf);
@@ -179,6 +183,14 @@ static void write_status(const wchar_t *title, int focused, const wchar_t *exe_b
 }
 
 /* ------------------------------------------------------------ 检测逻辑 */
+
+/* 部分 mingw 头文件未声明 IsUserAnAdmin, 手动声明(user32.dll 导出) */
+extern int IsUserAnAdmin(void);
+
+/* 当前进程是否具备管理员权限 */
+static int is_admin(void) {
+    return IsUserAnAdmin() != 0;
+}
 
 static void poll_once(void) {
     HWND h = GetForegroundWindow();
@@ -280,6 +292,22 @@ int main(int argc, char **argv) {
         fprintf(stderr, "winlock: 配置错误, 请在 %s 中设置 game_exe\n", conf_path);
         return 3;
     }
+
+    /* run_as_admin=1 且当前不是管理员: 用 PowerShell UAC 重新以管理员启动自己 */
+    if (cfg.elevate && !is_admin()) {
+        wchar_t wexe[MAX_PATH];
+        GetModuleFileNameW(NULL, wexe, MAX_PATH);
+        wchar_t wconf[640], wstat[640];
+        utf8_to_w(conf_path, wconf, 639);
+        utf8_to_w(g_status_path, wstat, 639);
+        wchar_t wcmd[1400];
+        swprintf(wcmd, 1400,
+                 L"powershell -NoProfile -Command \"Start-Process -Verb RunAs -FilePath '%ls' -ArgumentList '--config','%ls','--status','%ls'\"",
+                 wexe, wconf, wstat);
+        _wsystem(wcmd);   /* 弹出 UAC, 确认后由提升的新实例接管 */
+        return 0;
+    }
+    g_elevated = is_admin() ? 1 : 0;
 
     CreateThread(NULL, 0, poll_thread, NULL, 0, NULL);
 

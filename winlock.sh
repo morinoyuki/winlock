@@ -68,12 +68,14 @@ ensure_conf() {
 #              支持多个游戏: 多写几行 game_exe, 或一行内用逗号/竖线分隔
 # window_title 可选: 窗口标题包含的子串(对全部游戏生效), 留空则只按进程名判断
 # poll_ms      前台窗口检测间隔(毫秒)
+# run_as_admin 1=以管理员权限运行。游戏若以管理员身份运行, 必须设为 1,
+#              否则钩子收不到管理员游戏的按键, 拦截会静默失效(每次启动弹一次 UAC)
 
 game_exe = eldenring.exe
 game_exe = diablo4.exe
-game_exe = monsterhunterwilds.exe
 window_title =
 poll_ms = 300
+run_as_admin = 0
 EOF
     echo "已生成默认配置: $CONF"
     echo "请把 game_exe 换成你的游戏(可写多行), 然后重新 start"
@@ -88,6 +90,10 @@ start() {
     return 0
   fi
   [ -f "$EXE" ] || { build || return 1; }
+  ELEV="$(cfg_val run_as_admin)"
+  if [ "$ELEV" = "1" ]; then
+    echo "检测到 run_as_admin = 1: 将以管理员身份启动, 首次启动会弹出 UAC 授权框"
+  fi
 
   # Start-Process 在 Windows 侧独立启动, 与 WSL 进程组完全解耦(不会堵塞, 也不随终端关闭而退出)
   powershell.exe -NoProfile -Command \
@@ -132,6 +138,10 @@ status() {
       focused="$(grep -o '^focused=[01]' "$STATUS" | cut -d= -f2)"
       if [ "$focused" = "1" ]; then
         echo "=> 前方窗口是目标游戏, Win 键正被拦截"
+        elevated="$(grep -o '^elevated=[01]' "$STATUS" | cut -d= -f2)"
+        if [ "$elevated" = "0" ] && [ "$(cfg_val run_as_admin)" = "1" ]; then
+          echo "!! 警告: 守护未以管理员身份运行(尚未通过 UAC?), 管理员权限游戏的按键可能拦截不到"
+        fi
       else
         echo "=> 前方窗口不是目标游戏, Win 键正常"
       fi
