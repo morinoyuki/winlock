@@ -21,14 +21,20 @@ STATUS="$APP_DIR/status.txt"
 
 winpath() { wslpath -w "$1" 2>/dev/null || echo "$1"; }
 
-# 从配置文件取某个键的值
+# 从配置文件取某个键的值(首行)
 cfg_val() {
   sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CONF" 2>/dev/null \
     | sed 's/[[:space:]]*$//' | head -1
 }
 
-game_exe() { cfg_val game_exe; }
-GAME_EXE="$(game_exe)"
+# 取某个键的全部值(支持 game_exe 多行)
+cfg_all() {
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CONF" 2>/dev/null \
+    | sed 's/[[:space:]]*$//'
+}
+
+# 全部目标游戏, 逗号连接成一行用于展示
+GAME_EXE="$(cfg_all game_exe | paste -sd ', ' -)"
 [ -n "$GAME_EXE" ] || GAME_EXE="(未配置)"
 
 usage() {
@@ -58,16 +64,19 @@ ensure_conf() {
     cat > "$CONF" <<'EOF'
 # winlock 配置文件 (修改后执行 ./winlock.sh restart 生效)
 #
-# game_exe     目标游戏的 Windows 可执行文件名, 含 .exe, 不区分大小写
-# window_title 可选: 窗口标题包含的子串, 留空则只按进程名判断
+# game_exe     目标游戏的 Windows 可执行文件名, 含 .exe, 不区分大小写。
+#              支持多个游戏: 多写几行 game_exe, 或一行内用逗号/竖线分隔
+# window_title 可选: 窗口标题包含的子串(对全部游戏生效), 留空则只按进程名判断
 # poll_ms      前台窗口检测间隔(毫秒)
 
 game_exe = eldenring.exe
+game_exe = diablo4.exe
+game_exe = monsterhunterwilds.exe
 window_title =
 poll_ms = 300
 EOF
     echo "已生成默认配置: $CONF"
-    echo "请编辑 game_exe 换成你的游戏, 然后重新 start"
+    echo "请把 game_exe 换成你的游戏(可写多行), 然后重新 start"
     return 1
   fi
 }
@@ -95,7 +104,7 @@ start() {
   done
   if is_running; then
     echo "守护已启动。目标游戏: $GAME_EXE"
-    echo "效果: 前台窗口是 $GAME_EXE 时 Win 键被拦截, 切出后自动恢复"
+    echo "效果: 前台窗口是这些游戏之一时 Win 键被拦截, 切出后自动恢复"
     echo "查看实时状态: ./winlock.sh monitor"
   else
     echo "启动失败, 请检查配置: $CONF"

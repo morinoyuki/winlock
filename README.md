@@ -27,12 +27,17 @@ vim winlock.conf
 ./winlock.sh monitor
 ```
 
-配置示例：
+配置示例（**支持多个游戏**）：
 
 ```ini
 # 目标游戏的 Windows 可执行文件名（含 .exe，不区分大小写）
+# 支持多个游戏：多写几行，或一行内用逗号/竖线分隔
+#   game_exe = a.exe
+#   game_exe = b.exe, c.exe | d.exe
+# 未写 .exe 后缀会自动补上（a → a.exe）
 game_exe = eldenring.exe
-# 可选：窗口标题包含的子串，留空则只按进程名判断
+game_exe = diablo4.exe
+# 可选：窗口标题包含的子串（对全部游戏生效），留空则只按进程名判断
 window_title =
 # 前台窗口检测间隔（毫秒）
 poll_ms = 300

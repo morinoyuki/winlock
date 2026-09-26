@@ -22,9 +22,10 @@
 /* ---------------------------------------------------------------- 配置 */
 
 typedef struct {
-    wchar_t exe[64];      /* 目标游戏进程名, 如 eldenring.exe (不区分大小写) */
-    wchar_t title[192];   /* 可选: 窗口标题子串, 留空则只按进程名判断     */
-    int     poll_ms;      /* 前台窗口检测间隔(毫秒)                      */
+    wchar_t games[16][64];  /* 目标游戏进程名列表, 如 eldenring.exe (不区分大小写) */
+    int     n_games;       /* 已配置游戏数量                                          */
+    wchar_t title[192];    /* 可选: 窗口标题子串(对全部游戏生效), 留空则只按进程名判断 */
+    int     poll_ms;       /* 前台窗口检测间隔(毫秒)                                 */
 } Config;
 
 static Config   cfg;
@@ -45,6 +46,30 @@ static void w_to_utf8(const wchar_t *s, char *out, int max) {
 
 static int keyis(const char *k, size_t n, const char *s) {
     return strlen(s) == n && strncmp(k, s, n) == 0;
+}
+
+static wchar_t wl(wchar_t c);   /* 宽字符小写化, 定义见下(避免循环依赖先声明) */
+
+static int has_exe_suffix(const wchar_t *s) {
+    size_t n = wcslen(s);
+    return n >= 4 && s[n-4] == L'.' &&
+           wl(s[n-3]) == L'e' && wl(s[n-2]) == L'x' && wl(s[n-1]) == L'e';
+}
+
+/* 把一个游戏进程名加入列表; 未带 .exe 后缀则自动补上 */
+static void add_game(const char *utf8_name) {
+    if (cfg.n_games >= 16) return;
+    wchar_t buf[64];
+    utf8_to_w(utf8_name, buf, 63);
+    if (!buf[0]) return;
+    size_t n = wcslen(buf);
+    if (!has_exe_suffix(buf) && n + 4 < 64) {
+        buf[n] = L'.'; buf[n+1] = L'e'; buf[n+2] = L'x'; buf[n+3] = L'e';
+        buf[n+4] = 0;
+    }
+    wcsncpy(cfg.games[cfg.n_games], buf, 63);
+    cfg.games[cfg.n_games][63] = 0;
+    cfg.n_games++;
 }
 
 static void parse_config(const char *path) {
@@ -78,7 +103,21 @@ static void parse_config(const char *path) {
         buf[vlen] = 0;
 
         if (keyis(key, klen, "game_exe")) {
-            utf8_to_w(buf, cfg.exe, 63);
+            /* 支持多行 game_exe, 也支持一行内用逗号(,)或竖线(|)分隔多个进程名 */
+            char *tok = buf;
+            for (;;) {
+                char *sep = tok;
+                while (*sep && *sep != ',' && *sep != '|') sep++;
+                char save = *sep;
+                *sep = 0;
+                char *t = tok;
+                while (*t == ' ' || *t == '\t') t++;
+                char *te = t + strlen(t);
+                while (te > t && (te[-1] == ' ' || te[-1] == '\t')) te--;
+                if (te > t) { *te = 0; add_game(t); }
+                if (!save) break;
+                tok = sep + 1;
+            }
         } else if (keyis(key, klen, "window_title")) {
             utf8_to_w(buf, cfg.title, 191);
         } else if (keyis(key, klen, "poll_ms")) {
@@ -86,15 +125,6 @@ static void parse_config(const char *path) {
         }
     }
     fclose(f);
-
-    /* 若 game_exe 没写 .exe 后缀则自动补上 */
-    size_t n = wcslen(cfg.exe);
-    if (n >= 4 && cfg.exe[n-4] == L'.' && cfg.exe[n-1] == L'e') {
-        /* 已带后缀 */
-    } else if (n + 4 < 64) {
-        cfg.exe[n] = L'.'; cfg.exe[n+1] = L'e'; cfg.exe[n+2] = L'x'; cfg.exe[n+3] = L'e';
-        cfg.exe[n+4] = 0;
-    }
 }
 
 /* ---------- 宽字符忽略大小写比较 ---------- */
@@ -176,7 +206,10 @@ static void poll_once(void) {
                 CloseHandle(hp);
             }
         }
-        if (cfg.exe[0] && wieq(wexe, cfg.exe)) focused = 1;
+        if (cfg.n_games) {
+            for (int i = 0; i < cfg.n_games; i++)
+                if (wieq(wexe, cfg.games[i])) { focused = 1; break; }
+        }
         if (focused && cfg.title[0] && !wicontains(wtitle, cfg.title)) focused = 0;
     }
 
@@ -243,7 +276,7 @@ int main(int argc, char **argv) {
     }
 
     parse_config(conf_path);
-    if (!cfg.exe[0]) {
+    if (cfg.n_games == 0) {
         fprintf(stderr, "winlock: 配置错误, 请在 %s 中设置 game_exe\n", conf_path);
         return 3;
     }
